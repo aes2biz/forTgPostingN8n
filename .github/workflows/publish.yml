@@ -12,7 +12,9 @@ on:
         description: 'URL of image'
         required: false
         type: string
-
+  repository_dispatch:
+    types: [publish_from_n8n]
+    
 jobs:
   publish:
     runs-on: ubuntu-latest
