@@ -2,22 +2,28 @@ import os
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
-SESSION = os.environ["TELEGRAM_SESSION"]
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+SESSION_STR = os.environ.get("TELEGRAM_SESSION")
+CHANNEL  = os.environ.get("TELEGRAM_CHANNEL")
 
-client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
+client = TelegramClient(StringSession(SESSION_STR), API_ID, API_HASH)
 
 async def main():
     await client.start()
 
-    # Попробуем получить канал (username или ID через get_dialogs)
-    await client.get_dialogs()
+    # Получаем текст и ссылку на картинку из переменных окружения
+    text = os.environ.get("PUBLISH_TEXT", "")
+    image_url = os.environ.get("PICTURE_URL", None)
 
-    # Пытаемся получить entity
-    channel_entity = await client.get_entity('@robo_neuro_news')  # предпочитай username
+    # Получаем entity канала для отправки
+    channel_entity = await client.get_entity(CHANNEL)
 
-    await client.send_file(channel_entity, image_url, caption=text)
+    # Отправка с картинкой или просто текст
+    if image_url:
+        await client.send_file(channel_entity, image_url, caption=text)
+    else:
+        await client.send_message(channel_entity, text)
 
 with client:
     client.loop.run_until_complete(main())
