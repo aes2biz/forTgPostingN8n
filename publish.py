@@ -21,7 +21,7 @@ async def main():
     channel_entity = await client.get_entity(CHANNEL)
 
     if image_url:
-        await client.send_file(channel_entity, image_url, caption=text)
+        await client.send_file(channel_entity, image_url, caption=text, parse_mode="html")
     else:
         await client.send_message(channel_entity, text)
 
