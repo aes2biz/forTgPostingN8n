@@ -22,14 +22,12 @@ async def main():
     if image_url and image_url.strip():
         image_url = image_url.strip()
     else:
-        # Если URL не передан или пустой, используем дефолтную картинку
         print("Image URL not provided, using placeholder.")
         image_url = "https://i.ibb.co/fVz9rKn/Chat-GPT-Image-Jan-12-2026-09-47-05-PM.png"
     
     channel_entity = await client.get_entity(CHANNEL)
 
     try:
-        # Теперь image_url есть всегда (либо ваш, либо заглушка)
         print(f"Downloading image: {image_url}")
         
         async with aiohttp.ClientSession() as session:
@@ -41,27 +39,37 @@ async def main():
                     img_stream = BytesIO(image_data)
                     img = Image.open(img_stream)
                     
-                    # Ресайз (оптимизация)
-                    max_size = 1920 
+                    # --- УЛУЧШЕНИЕ КАЧЕСТВА 1: Мягкий ресайз ---
+                    # Не уменьшаем картинку, если она меньше 4K (3840px).
+                    # Это позволяет сохранить детали на экранах высокого разрешения.
+                    max_size = 3840 
                     if img.width > max_size or img.height > max_size:
                         img.thumbnail((max_size, max_size), Image.LANCZOS)
                         print(f"Resized to {img.size}")
                     
-                    # Подготовка потока для отправки
-                    jpg_stream = BytesIO()
-                    # Конвертируем в RGB и сохраняем в JPEG
-                    img.convert('RGB').save(jpg_stream, format='JPEG', quality=90)
-                    
-                    # Перематываем поток в начало
-                    jpg_stream.seek(0)
-                    
-                    # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
-                    # Явно задаем имя файла, чтобы Telegram понял, что это фото
-                    jpg_stream.name = "image.jpg"
-                    
-                    print(f"Sending photo... Size: {jpg_stream.getbuffer().nbytes} bytes")
+                    # --- УЛУЧШЕНИЕ КАЧЕСТВА 2: Обработка прозрачности ---
+                    # Если картинка RGBA (PNG с прозрачностью), создаем белый фон,
+                    # иначе прозрачность станет черной при конвертации в JPG.
+                    if img.mode in ('RGBA', 'LA'):
+                        background = Image.new('RGB', img.size, (0, 0, 0))
+                        background.paste(img, mask=img.split()[-1])
+                        img = background
+                    else:
+                        img = img.convert('RGB')
 
-                    # Отправляем
+                    # Подготовка потока
+                    jpg_stream = BytesIO()
+                    
+                    # --- УЛУЧШЕНИЕ КАЧЕСТВА 3: Настройки сохранения ---
+                    # quality=100: Минимальное сжатие.
+                    # subsampling=0: ОТКЛЮЧАЕТ сжатие цвета. Текст и линии станут четкими.
+                    img.save(jpg_stream, format='JPEG', quality=100, subsampling=0)
+                    
+                    jpg_stream.seek(0)
+                    jpg_stream.name = "image.jpg" # Чтобы Telegram принял как фото
+                    
+                    print(f"Sending HQ photo... Size: {jpg_stream.getbuffer().nbytes} bytes")
+
                     await client.send_file(
                         channel_entity,
                         file=jpg_stream,
@@ -70,17 +78,15 @@ async def main():
                         force_document=False
                     )
                 else:
-                    print(f"HTTP Error: {resp.status} for URL: {image_url}")
-                    # Если даже заглушка не скачалась — шлем просто текст
+                    print(f"HTTP Error: {resp.status}")
                     await client.send_message(channel_entity, text, parse_mode="html")
 
     except Exception as e:
         print(f"Global Error: {e}")
-        # Аварийный фолбек: отправляем текст без картинки
         try:
             await client.send_message(channel_entity, text, parse_mode="html")
-        except Exception as msg_e:
-            print(f"Failed to send fallback message: {msg_e}")
+        except Exception:
+            pass
 
 with client:
     client.loop.run_until_complete(main())
