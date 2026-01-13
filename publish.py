@@ -18,69 +18,65 @@ async def main():
     text = os.environ.get("PUBLISH_TEXT")
     image_url = os.environ.get("PICTURE_URL")
     
-    if image_url:
+    # --- ЛОГИКА ЗАГЛУШКИ ---
+    if image_url and image_url.strip():
         image_url = image_url.strip()
+    else:
+        # Если URL не передан или пустой, используем дефолтную картинку
+        print("Image URL not provided, using placeholder.")
+        image_url = "https://i.ibb.co/fVz9rKn/Chat-GPT-Image-Jan-12-2026-09-47-05-PM.png"
     
-    # Получаем сущность канала (лучше делать это один раз)
-    try:
-        channel_entity = await client.get_entity(CHANNEL)
-    except Exception as e:
-        print(f"Error getting entity: {e}")
-        return
+    channel_entity = await client.get_entity(CHANNEL)
 
     try:
-        if image_url:
-            print(f"Downloading image: {image_url}")
-            async with aiohttp.ClientSession() as session:
-                async with session.get(image_url) as resp:
-                    if resp.status == 200:
-                        image_data = await resp.read()
-                        
-                        # Открываем изображение
-                        img_stream = BytesIO(image_data)
-                        img = Image.open(img_stream)
-                        
-                        # --- Логика ресайза (опционально, но полезно для скорости) ---
-                        # Telegram сжимает фото сам, но если картинка > 10МБ, он ее не примет как фото.
-                        # Ваш ресайз до 1024 безопасен, хотя для HD можно и 1920.
-                        max_size = 1920 # Увеличил до стандарта HD, чтобы качество было лучше
-                        if img.width > max_size or img.height > max_size:
-                            img.thumbnail((max_size, max_size), Image.LANCZOS)
-                            print(f"Resized to {img.size}")
-                        
-                        # --- КРИТИЧЕСКИЙ МОМЕНТ ---
-                        jpg_stream = BytesIO()
-                        # Конвертируем в RGB (на случай PNG с прозрачностью) и сохраняем в поток
-                        img.convert('RGB').save(jpg_stream, format='JPEG', quality=90)
-                        
-                        # Перематываем поток в начало
-                        jpg_stream.seek(0)
-                        
-                        # !!! ВОТ РЕШЕНИЕ !!!
-                        # Мы явно говорим библиотеке, что этот поток — файл с именем image.jpg
-                        jpg_stream.name = "image.jpg"
-                        
-                        print(f"Sending photo... Size: {jpg_stream.getbuffer().nbytes} bytes")
+        # Теперь image_url есть всегда (либо ваш, либо заглушка)
+        print(f"Downloading image: {image_url}")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as resp:
+                if resp.status == 200:
+                    image_data = await resp.read()
+                    
+                    # Открываем изображение
+                    img_stream = BytesIO(image_data)
+                    img = Image.open(img_stream)
+                    
+                    # Ресайз (оптимизация)
+                    max_size = 1920 
+                    if img.width > max_size or img.height > max_size:
+                        img.thumbnail((max_size, max_size), Image.LANCZOS)
+                        print(f"Resized to {img.size}")
+                    
+                    # Подготовка потока для отправки
+                    jpg_stream = BytesIO()
+                    # Конвертируем в RGB и сохраняем в JPEG
+                    img.convert('RGB').save(jpg_stream, format='JPEG', quality=90)
+                    
+                    # Перематываем поток в начало
+                    jpg_stream.seek(0)
+                    
+                    # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ ---
+                    # Явно задаем имя файла, чтобы Telegram понял, что это фото
+                    jpg_stream.name = "image.jpg"
+                    
+                    print(f"Sending photo... Size: {jpg_stream.getbuffer().nbytes} bytes")
 
-                        # Отправляем
-                        await client.send_file(
-                            channel_entity,
-                            file=jpg_stream,     # Передаем поток с именем, а не байты
-                            caption=text,
-                            parse_mode="html",
-                            force_document=False # Теперь это сработает, так как есть .jpg
-                        )
-                    else:
-                        print(f"HTTP Error: {resp.status}")
-                        # Фолбек на текст, если картинка не скачалась
-                        await client.send_message(channel_entity, text, parse_mode="html")
-        else:
-            # Если URL нет, просто шлем текст
-            await client.send_message(channel_entity, text, parse_mode="html")
+                    # Отправляем
+                    await client.send_file(
+                        channel_entity,
+                        file=jpg_stream,
+                        caption=text,
+                        parse_mode="html",
+                        force_document=False
+                    )
+                else:
+                    print(f"HTTP Error: {resp.status} for URL: {image_url}")
+                    # Если даже заглушка не скачалась — шлем просто текст
+                    await client.send_message(channel_entity, text, parse_mode="html")
 
     except Exception as e:
         print(f"Global Error: {e}")
-        # Фолбек на случай любой ошибки (например, битая картинка)
+        # Аварийный фолбек: отправляем текст без картинки
         try:
             await client.send_message(channel_entity, text, parse_mode="html")
         except Exception as msg_e:
