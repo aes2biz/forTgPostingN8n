@@ -1,10 +1,11 @@
 import os
 import aiohttp
-from io import BytesIO  # Для работы с bytes в Pillow
-from PIL import Image  # Для анализа размера изображения
+import magic  # Для определения mime_type (pip install python-magic)
+from io import BytesIO
+from PIL import Image
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import DocumentAttributeImageSize  # Для атрибутов фото
+from telethon.tl.types import DocumentAttributeImageSize
 
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
@@ -36,22 +37,29 @@ async def main():
                     if resp.status == 200:
                         image_data = await resp.read()
                         
-                        # Анализируем размер с Pillow
-                        try:
-                            img = Image.open(BytesIO(image_data))
-                            width, height = img.size
-                            attributes = [DocumentAttributeImageSize(width, height)]
-                        except Exception as attr_error:
-                            print(f"Ошибка анализа размера: {attr_error}")
-                            attributes = []  # Фолбек без атрибутов
+                        # Определяем mime_type
+                        mime = magic.from_buffer(image_data, mime=True)
                         
-                        # Отправляем как фото (force_document=False, attributes)
+                        # Открываем изображение для анализа и конвертации
+                        img_stream = BytesIO(image_data)
+                        img = Image.open(img_stream)
+                        width, height = img.size
+                        attributes = [DocumentAttributeImageSize(width, height)]
+                        
+                        # Если PNG, конвертируем в JPG для лучшей совместимости с Telegram photo
+                        if mime == 'image/png':
+                            jpg_stream = BytesIO()
+                            img.convert('RGB').save(jpg_stream, format='JPEG', quality=85)  # quality=85 для сжатия без потери
+                            image_data = jpg_stream.getvalue()
+                            mime = 'image/jpeg'
+                        
+                        # Отправляем как фото
                         await client.send_file(
                             channel_entity,
                             image_data,
                             caption=text,
                             parse_mode="html",
-                            mime_type='image/png',  # Или 'image/jpeg' если JPG
+                            mime_type=mime,
                             attributes=attributes,
                             force_document=False  # Принуждаем как photo
                         )
