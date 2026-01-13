@@ -43,15 +43,26 @@ async def main():
                         # Открываем изображение для анализа и конвертации
                         img_stream = BytesIO(image_data)
                         img = Image.open(img_stream)
+                        
+                        # Ресайз, если размеры > 1280 (Telegram лимит для photo без document)
+                        max_size = 1280
+                        if img.width > max_size or img.height > max_size:
+                            if img.width > img.height:
+                                new_width = max_size
+                                new_height = int((new_width / img.width) * img.height)
+                            else:
+                                new_height = max_size
+                                new_width = int((new_height / img.height) * img.width)
+                            img = img.resize((new_width, new_height), Image.LANCZOS)  # Качественный ресайз
+                        
                         width, height = img.size
                         attributes = [DocumentAttributeImageSize(width, height)]
                         
-                        # Если PNG, конвертируем в JPG для лучшей совместимости с Telegram photo
-                        if mime == 'image/png':
-                            jpg_stream = BytesIO()
-                            img.convert('RGB').save(jpg_stream, format='JPEG', quality=85)  # quality=85 для сжатия без потери
-                            image_data = jpg_stream.getvalue()
-                            mime = 'image/jpeg'
+                        # Конвертируем в JPG всегда для лучшей совместимости (даже если был JPG)
+                        jpg_stream = BytesIO()
+                        img.convert('RGB').save(jpg_stream, format='JPEG', quality=85)  # quality=85 для сжатия
+                        image_data = jpg_stream.getvalue()
+                        mime = 'image/jpeg'
                         
                         # Отправляем как фото
                         await client.send_file(
